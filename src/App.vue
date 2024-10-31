@@ -18,6 +18,13 @@
       <div class="title">切换环境</div>
     </div>
 
+    <div class="comment button" @click="createComment">
+      <svg class="icon" aria-hidden="true">
+        <use xlink:href="#icon-pizhu"></use>
+      </svg>
+      <div class="title">添加批注</div>
+    </div>
+
     <a-popover trigger="click" placement="top">
       <template #content>
         <Camera />
@@ -29,30 +36,6 @@
         <div class="title">协同设计</div>
       </div>
     </a-popover>
-
-    <a-popover trigger="click" placement="top">
-      <template #content>
-        <Comment />
-      </template>
-      <div class="comment button">
-        <svg class="icon" aria-hidden="true">
-          <use xlink:href="#icon-a-pizhutianjiapizhu"></use>
-        </svg>
-        <div class="title">批注</div>
-      </div>
-    </a-popover>
-
-    <!-- <a-popover trigger="click" placement="top">
-      <template #content>
-        <Inner />
-      </template>
-      <div class="innerModel button">
-        <svg class="icon" aria-hidden="true">
-          <use xlink:href="#icon-neibukuoda2"></use>
-        </svg>
-        <div class="title">内部结构</div>
-      </div>
-    </a-popover> -->
   </div>
 
   <div class="inputBox" v-show="inputShow">
@@ -63,6 +46,31 @@
       @keyup.enter="onEnter"
       @blur="onEnter"
     />
+  </div>
+
+  <!-- Button to toggle terminal visibility, now in the top left -->
+  <button class="toggle-terminal-button" @click="toggleTerminal">
+    {{ terminalVisible ? 'Hide Comments' : 'Show Comments' }}
+  </button>
+
+<!-- Terminal for comment history, conditionally rendered based on terminalVisible -->
+<div v-if="terminalVisible" class="comment-terminal">
+    <div class="terminal-header">
+      <h3>Comment History</h3>
+    </div>
+    <div class="terminal-content">
+      <ul>
+        <li v-for="(comment, index) in commentsOBJ" :key="index">
+          <div class="comment-list">
+            <div class="comment-details">
+              <span class="timestamp">{{ comment.timestamp }}</span>
+              <span class="text">{{ comment.text }}</span>
+            </div>
+            <button @click="deleteComment(index)" class="delete-button">Delete</button>
+          </div>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -76,16 +84,19 @@ import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import { io } from "socket.io-client";
 import * as ZXKJ from './sdk/zx-three-sdk';
-import Comment from "./components/buttons/comment.vue";
-import Environment from "./components/buttons/environment.vue";
+// import Comment from "./components/buttons/comment.vue";
+// import Environment from "./components/buttons/environment.vue";
 import Camera from "./components/buttons/camera.vue";
-import Inner from "./components/buttons/internalStructure.vue";
+// import Inner from "./components/buttons/internalStructure.vue";
 import SpriteText from "three-spritetext";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 
 // Socket.IO setup for real-time communication
 const socket = io("http://localhost:3000");
+
+// Define ref for terminal visibility
+const terminalVisible = ref(false);
 
 const useSdk = ref(false);
 
@@ -106,6 +117,230 @@ const objects = [];
 let startPosition;
 let inputShow = ref(false);
 const inputMessage = ref("");
+const commentsOBJ = ref([]);
+const comments = [];
+let dragControls;
+let selectedComment = null; // Track the selected comment
+let resizeBorders = []; // Array to hold resize borders
+
+// Function to toggle terminal visibility
+const toggleTerminal = () => {
+  terminalVisible.value = !terminalVisible.value;
+};
+
+// Create a new comment on the canvas
+const createComment = () => {
+  const userInput = prompt("Enter your comment:"); // Prompt user for comment text
+  if (!userInput) return; 
+  const timestamp = new Date().toLocaleString();
+  const commentText = addCommentToScene(userInput, timestamp);
+
+  // Add the comment to the scene
+  scene.add(commentText);
+  comments.push(commentText);
+  commentsOBJ.value.push({
+    text: commentText.text,
+    timestamp: timestamp,
+    object: commentText,
+  });
+
+  // Emit 'addComment' event for real-time collaboration
+  socket.emit("addComment", { text: userInput, timestamp, position: commentText.position });
+  console.log("emit addComment", { text: userInput, timestamp, position: commentText.position });
+
+  // Attach click listener to select and show resize borders
+  commentText.onClick = () => {
+    if (selectedComment !== commentText) {
+      clearResizeBorders();
+      selectedComment = commentText;
+      // showResizeBorders(commentText);
+    }
+  };
+
+  // Add double-click event to edit the text
+  commentText.onDblClick = () => {
+    const newText = prompt('Edit Comment:', commentText.text);
+    if (newText) {
+      commentText.text = newText;
+      commentText.scale.set(0.5, 0.5, 0.5);
+    }
+  };
+
+  updateDragControls();
+
+  // Add double-click and click event listener for editing and selecting
+  renderer.domElement.addEventListener('dblclick', (event) => {
+    checkInteraction(event, 'dblclick');
+  });
+
+  renderer.domElement.addEventListener('click', (event) => {
+    checkInteraction(event, 'click');
+  });
+};
+
+// Function to delete a comment using timestamp
+const deleteComment = (index) => {
+  const commentToDelete = commentsOBJ.value[index];
+
+  if (commentToDelete) {
+    // Locate the comment in the scene by timestamp
+    const commentObject = comments.find(c => c.userData.timestamp === commentToDelete.timestamp);
+    if (commentObject) {
+      scene.remove(commentObject); // Remove from Three.js scene
+
+      // Remove from comments array
+      const commentIndex = comments.indexOf(commentObject);
+      if (commentIndex > -1) comments.splice(commentIndex, 1);
+    }
+
+    commentsOBJ.value.splice(index, 1);
+
+    // Emit 'deleteComment' event
+    socket.emit("deleteComment", { index });
+  }
+};
+
+
+// Function to check interaction with comments
+const checkInteraction = (event, type) => {
+  const mouse = new THREE.Vector2();
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera);
+
+  const intersects = raycaster.intersectObjects([...comments, ...resizeBorders]);
+  if (intersects.length > 0) {
+    const selectedObject = intersects[0].object;
+    if (type === 'dblclick') {
+      selectedObject.onDblClick?.();
+    } else if (type === 'click') {
+      selectedObject.onClick?.();
+    }
+  } else if (type === 'click' && selectedComment) {
+    // Deselect if clicking elsewhere
+    clearResizeBorders();
+    selectedComment = null;
+  }
+};
+
+// Function to show resize borders around the comment
+const showResizeBorders = (comment) => {
+  const borderSize = 0.1;
+  const resizePositions = [
+    { x: -0.3, y: 0 }, // Left
+    { x: 0.3, y: 0 },  // Right
+    { x: 0, y: 0.15 }, // Top
+    { x: 0, y: -0.15 } // Bottom
+  ];
+
+  resizePositions.forEach((pos) => {
+    const border = new THREE.Mesh(
+      new THREE.BoxGeometry(borderSize, borderSize, 0.01),
+      new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    );
+    border.position.set(
+      comment.position.x + pos.x,
+      comment.position.y + pos.y,
+      comment.position.z
+    );
+    border.userData.isResizeHandle = true;
+    border.userData.direction = pos; // Store direction for resizing
+
+    border.onDrag = (draggedBorder) => resizeComment(comment, draggedBorder);
+
+    scene.add(border);
+    resizeBorders.push(border);
+  });
+
+  updateDragControls();
+};
+
+// Function to resize the comment by dragging borders
+const resizeComment = (comment, draggedBorder) => {
+  const direction = draggedBorder.userData.direction;
+  const scaleChange = direction.x ? Math.abs(draggedBorder.position.x - comment.position.x) : Math.abs(draggedBorder.position.y - comment.position.y);
+
+  comment.scale.set(scaleChange * 2, scaleChange * 2, 1);
+
+  // Update the positions of all borders around the comment
+  clearResizeBorders();
+  showResizeBorders(comment);
+};
+
+// Function to clear resize borders
+const clearResizeBorders = () => {
+  resizeBorders.forEach(border => scene.remove(border));
+  resizeBorders = [];
+};
+
+// Function to update drag controls for comments and borders
+const updateDragControls = () => {
+  if (dragControls) dragControls.dispose(); // Remove previous drag controls
+
+  dragControls = new DragControls([...comments, ...resizeBorders], camera, renderer.domElement);
+  dragControls.addEventListener('dragstart', (event) => {
+    if (event.object.userData.isResizeHandle) {
+      event.object.onDrag(event.object); // Trigger resize
+    } else {
+      controls.enabled = false;
+    }
+  });
+  dragControls.addEventListener('dragend', () => controls.enabled = true);
+
+    // Emit the position of the dragged comment for real-time collaboration
+    dragControls.addEventListener('drag', (event) => {
+    const draggedComment = event.object;
+    const position = draggedComment.position.clone();
+
+    // Emit the drag event with the comment's timestamp (to identify) and new position
+    socket.emit('moveComment', {
+      timestamp: draggedComment.userData.timestamp,
+      position: { x: position.x, y: position.y, z: position.z },
+    });
+
+    render(); // Ensure scene re-renders
+  });
+};
+
+socket.on("moveComment", (data) => {
+  const { timestamp, position } = data;
+
+  // Find the comment with the matching timestamp
+  const commentToMove = comments.find((c) => c.userData.timestamp === timestamp);
+
+  if (commentToMove) {
+    // Update its position to match the incoming data
+    commentToMove.position.set(position.x, position.y, position.z);
+    render(); // Ensure the scene re-renders to reflect changes
+  }
+});
+
+const addCommentToScene = (text, timestamp, position = { x: 0, y: 1, z: 0 }) => {
+  const commentText = new SpriteText(text);
+  commentText.color = "black";
+  commentText.fontSize = 200;
+  commentText.scale.set(0.5, 0.5, 0.5);
+  commentText.position.set(position.x, position.y, position.z);
+  commentText.userData = { timestamp };
+  scene.add(commentText);
+  comments.push(commentText);
+  return commentText;
+};
+
+// Socket listeners for real-time updates
+socket.on("addComment", (data) => {
+  console.log("Received new comment:", data);
+  const { text, timestamp, position } = data;
+  const commentText = addCommentToScene(text, timestamp, position);
+  commentsOBJ.value.push({ text, timestamp, object: commentText });
+  comments.push(commentText);
+});
+
+socket.on("deleteComment", (data) => {
+  deleteComment(data.index);
+});
 
 // Function to broadcast object movement
 function broadcastObjectMovement(data) {
@@ -241,6 +476,7 @@ const setupRenderer = async () => {
 
   // Update the `domElement` for drag and transform controls
   initDragControls(domElement);
+  updateDragControls();
   return domElement;
 };
 
@@ -285,7 +521,7 @@ onMounted(async () => {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshStandardMaterial({ color: 0xff0000 }); // Red color for visibility
   const cube = new THREE.Mesh(geometry, material);
-  cube.position.set(0, 0, 0); 
+  cube.position.set(-2, -2.2, 0); 
   cube.userData.id = "testCube"; 
   scene.add(cube);
   objects.push(cube);
@@ -535,5 +771,67 @@ addEventListener("resize", () => {
 }
 .inputBox {
   margin: 113px 450px;
+}
+
+.toggle-terminal-button {
+  position: fixed;
+  top: 10px;
+  left: 10px; /* Move to top left */
+  background-color: #4a4a4a;
+  color: #fff;
+  border: none;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  z-index: 1000;
+}
+
+.comment-terminal {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 300px;
+  height: 100%;
+  background-color: #f5f5f5;
+  border-left: 1px solid #ccc;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.terminal-header {
+  text-align: center;
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.terminal-content ul {
+  list-style: none;
+}
+
+.comment-list {
+  margin-bottom: 30px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ccc;
+}
+
+.comment-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.timestamp {
+  font-size: 0.8em;
+  color: #666;
+}
+
+.delete-button {
+  background-color: #ff4444;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  padding: 5px 10px;
+  margin-left: 10px;
 }
 </style>

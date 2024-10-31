@@ -1,56 +1,75 @@
 <template>
-  <div class="commentContainer">
-    <div class="box">
-      <svg class="icon" aria-hidden="true">
-        <use xlink:href="#icon-tianjiapizhu"></use>
-      </svg>
-      <div class="title">添加文字批注</div>
+  <a-modal
+    v-model:visible="visible"
+    title="批注"
+    @ok="handleOk"
+    @cancel="handleCancel"
+  >
+    <div>
+      <label for="comment-input">请输入您的批注：</label>
+      <textarea
+        id="comment-input"
+        v-model="newComment"
+        rows="4"
+        placeholder="添加您的批注..."
+      ></textarea>
     </div>
-    <div class="box">
-      <svg class="icon" aria-hidden="true">
-        <use xlink:href="#icon-pizhu"></use>
-      </svg>
-      <div class="title">添加涂鸦批注</div>
+    <div>
+      <h4>已有批注：</h4>
+      <ul>
+        <li v-for="(comment, index) in comments" :key="index">
+          <p>{{ comment }}</p>
+        </li>
+      </ul>
     </div>
-
-    <div class="box">
-      <svg class="icon" aria-hidden="true">
-        <use xlink:href="#icon-yuyin"></use>
-      </svg>
-      <div class="title">添加语音批注</div>
-    </div>
-
-    <div class="box">
-      <svg class="icon" aria-hidden="true">
-        <use xlink:href="#icon-pizhushijiao"></use>
-      </svg>
-      <div class="title">定位到批注视角</div>
-    </div>
-  </div>
+  </a-modal>
 </template>
 
-<script setup></script>
-<style lang="less" scoped>
-.icon {
-  width: 2em;
-  height: 2em;
-  vertical-align: -0.15em;
-  fill: currentColor;
-  overflow: hidden;
-}
-.commentContainer {
-  display: flex;
-  .box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 110px;
-    height: 110px;
-    border: 1px solid #ccc;
-    border-radius: 1px;
-    margin: 1px;
-    cursor: pointer;
+<script setup>
+import { ref, defineProps, watch } from "vue";
+
+// In Comment.vue
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    default: false
+  },
+  existingComments: {
+    type: Array,
+    default: () => []
   }
-}
-</style>
+});
+
+const emit = defineEmits(['update:visible', 'add-comment']);
+
+// Function to handle adding a new comment
+const addComment = (position, text) => {
+  emit('add-comment', { position, text });
+};
+
+const visible = ref(props.visible);
+const newComment = ref("");
+const comments = ref([...props.existingComments]);
+
+// Handle the OK action
+const handleOk = () => {
+  if (newComment.value.trim()) {
+    comments.value.push(newComment.value.trim());
+    emit("add-comment", { objectId: props.objectId, comment: newComment.value.trim() });
+    newComment.value = ""; // Clear the input
+  }
+  visible.value = false;
+  emit("update:visible", visible.value);
+};
+
+// Handle the Cancel action
+const handleCancel = () => {
+  visible.value = false;
+  emit("update:visible", visible.value);
+};
+
+// Watch for changes to visibility
+watch(() => props.visible, (newVal) => {
+  visible.value = newVal;
+});
+</script>

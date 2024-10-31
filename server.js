@@ -45,6 +45,22 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });
+
+  // Listen for add, delete, and edit events
+  socket.on("addComment", (data) => {
+    socket.broadcast.emit("addComment", data);
+    console.log('Comment added:', data);
+  });
+
+  socket.on("deleteComment", (data) => {
+    socket.broadcast.emit("deleteComment", data);
+  });
+
+  // Handle comment movement for real-time drag updates
+  socket.on('moveComment', (data) => {
+    console.log('Comment moved:', data);
+    socket.broadcast.emit('moveComment', data); // Broadcast to all other clients
+  });
 });
 
 server.listen(3000, () => {
