@@ -21,9 +21,26 @@ const io = new Server(server, {
 
 app.use(express.static('public'));
 
+let userCounter = 0; // Counter to generate user-friendly IDs
+const userIDs = {};  // Mapping of socket IDs to user-friendly IDs
+const availableUserNumbers = []; // Queue for available user numbers to reuse
+
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
-  socket.emit('userID', socket.id);
+  let friendlyUserID;
+
+    if (availableUserNumbers.length > 0) {
+        // Reuse the lowest available number
+        friendlyUserID = `User ${availableUserNumbers.shift()}`;
+    } else {
+        // Increment userCounter for a new ID
+        userCounter++;
+        friendlyUserID = `User ${userCounter}`;
+    }
+
+    userIDs[socket.id] = friendlyUserID;
+    socket.emit('userID', friendlyUserID);
+
+    console.log(`User connected: ${friendlyUserID}`);
 
   // Object movement
   socket.on('objectMoved', (data) => {
@@ -43,10 +60,6 @@ io.on('connection', (socket) => {
     console.log('Text annotation added:', data);
   });
 
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-
   // Listen for add, delete, and edit events
   socket.on("addComment", (data) => {
     socket.broadcast.emit("addComment", data);
@@ -62,6 +75,15 @@ io.on('connection', (socket) => {
     console.log('Comment moved:', data);
     socket.broadcast.emit('moveComment', data); // Broadcast to all other clients
   });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${friendlyUserID}`);
+    // Extract the number from the user ID and add it to the available numbers queue
+    const userNumber = parseInt(friendlyUserID.split(' ')[1], 10);
+    availableUserNumbers.push(userNumber);
+    availableUserNumbers.sort((a, b) => a - b); // Keep the queue sorted
+    delete userIDs[socket.id];
+});
 });
 
 server.listen(3000, () => {

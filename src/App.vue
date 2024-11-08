@@ -64,12 +64,15 @@
         <div class="comment-list">
           <div class="comment-details">
             <span class="timestamp">{{ comment.timestamp }}</span>
-            <span class="text">{{ comment.text }}</span>
+            <span class="text">{{ comment.userInput }}</span>
           </div>
           <div class="user-id">
-            <span>Created by: {{ comment.userID }}</span> <!-- Display userID -->
+            <span>Created by: {{ comment.friendlyUserID }}</span> <!-- Display userID -->
           </div>
           <button @click="deleteComment(index)" class="delete-button">Delete</button>
+          <button @click="commentTerminalClickHandler(index)" class="comment-terminal-button" style="margin-left: 10px;">
+            Go to Comment
+          </button>
         </div>
       </li>
     </ul>
@@ -97,6 +100,24 @@ import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 
 // Socket.IO setup for real-time communication
 const socket = io("http://localhost:3000");
+let UserID = '';
+socket.on('userID', (friendlyUserID) => {
+    console.log('Connected with userID:', friendlyUserID);
+    UserID = friendlyUserID;
+    // Display the userID on the UI
+    const userIDContainer = document.createElement('div');
+    userIDContainer.textContent = `User ID: ${friendlyUserID}`;
+    userIDContainer.style.position = 'fixed';
+    userIDContainer.style.bottom = '10px';
+    userIDContainer.style.left = '10px';
+    userIDContainer.style.backgroundColor = '#f0f0f0';
+    userIDContainer.style.padding = '5px';
+    userIDContainer.style.border = '1px solid #ccc';
+    userIDContainer.style.borderRadius = '4px';
+    userIDContainer.style.zIndex = '1000';
+
+    document.body.appendChild(userIDContainer);
+});
 
 // Define ref for terminal visibility
 const terminalVisible = ref(false);
@@ -136,21 +157,36 @@ const createComment = () => {
   const userInput = prompt("Enter your comment:"); // Prompt user for comment text
   if (!userInput) return; 
   const timestamp = new Date().toLocaleString();
-  const commentText = addCommentToScene(userInput, timestamp);
+  const userID = socket.id;
+  const text = `${UserID}:\n${userInput}`;
+  const commentText = addCommentToScene(text, timestamp);
+
+  // Record the current camera rotation and position
+  const cameraData = {
+    position: camera.position.clone(),
+    rotation: {
+      x: camera.rotation.x,
+      y: camera.rotation.y,
+      z: camera.rotation.z,
+    },
+  };
 
   // Add the comment to the scene
   scene.add(commentText);
   comments.push(commentText);
   commentsOBJ.value.push({
+    userInput: userInput,
     text: commentText.text,
     timestamp: timestamp,
     object: commentText,
-    userID: socket.id
+    userID: socket.id,
+    friendlyUserID: UserID,
+    cameraData: cameraData, 
   });
 
   // Emit 'addComment' event for real-time collaboration
-  socket.emit("addComment", { text: userInput, timestamp, position: commentText.position, userID: socket.id });
-  console.log("emit addComment", { text: userInput, timestamp, position: commentText.position, userID: socket.id });
+  socket.emit("addComment", { userInput: userInput, text: text, timestamp, position: commentText.position, userID: socket.id, friendlyUserID: UserID ,cameraData: cameraData,  });
+  console.log("emit addComment", { userInput: userInput, text: text, timestamp, position: commentText.position, userID: socket.id, friendlyUserID: UserID, cameraData: cameraData,  });
 
   // Attach click listener to select and show resize borders
   commentText.onClick = () => {
@@ -180,6 +216,30 @@ const createComment = () => {
   renderer.domElement.addEventListener('click', (event) => {
     checkInteraction(event, 'click');
   });
+};
+
+const revertCameraToCommentState = (cameraData) => {
+  if (cameraData) {
+    camera.position.set(
+      cameraData.position.x,
+      cameraData.position.y,
+      cameraData.position.z
+    );
+    camera.rotation.set(
+      cameraData.rotation.x,
+      cameraData.rotation.y,
+      cameraData.rotation.z
+    );
+    controls.update(); // Ensure the controls reflect the new camera state
+  }
+};
+
+// Add click event for comments in the terminal
+const commentTerminalClickHandler = (index) => {
+  const selectedComment = commentsOBJ.value[index];
+  if (selectedComment && selectedComment.cameraData) {
+    revertCameraToCommentState(selectedComment.cameraData);
+  }
 };
 
 // Function to delete a comment using timestamp
@@ -325,7 +385,7 @@ const addCommentToScene = (text, timestamp, position = { x: 0, y: 1, z: 0 }) => 
   const commentText = new SpriteText(text);
   commentText.color = "black";
   commentText.fontSize = 200;
-  commentText.scale.set(0.5, 0.5, 0.5);
+  commentText.scale.set(1, 1, 1);
   commentText.position.set(position.x, position.y, position.z);
   commentText.userData = { timestamp };
   scene.add(commentText);
@@ -336,9 +396,9 @@ const addCommentToScene = (text, timestamp, position = { x: 0, y: 1, z: 0 }) => 
 // Socket listeners for real-time updates
 socket.on("addComment", (data) => {
   console.log("Received new comment:", data);
-  const { text, timestamp, position, userID } = data;
+  const { userInput, text, timestamp, position, userID, friendlyUserID, cameraData} = data;
   const commentText = addCommentToScene(text, timestamp, position);
-  commentsOBJ.value.push({ text, timestamp, object: commentText, userID });
+  commentsOBJ.value.push({ userInput, text, timestamp, object: commentText, userID, friendlyUserID,  cameraData });
   comments.push(commentText);
 });
 
@@ -488,24 +548,6 @@ const render = () => {
   }
   requestAnimationFrame(render);
 };
-
-socket.on('userID', (userID) => {
-  console.log('Connected with userID:', userID);
-
-  // Display the userID on the UI
-  const userIDContainer = document.createElement('div');
-  userIDContainer.textContent = `User ID: ${userID}`;
-  userIDContainer.style.position = 'fixed';
-  userIDContainer.style.bottom = '10px'; // Positioned at the bottom
-  userIDContainer.style.left = '10px'; // Positioned on the left
-  userIDContainer.style.backgroundColor = '#f0f0f0';
-  userIDContainer.style.padding = '5px';
-  userIDContainer.style.border = '1px solid #ccc';
-  userIDContainer.style.borderRadius = '4px'; // Optional for rounded corners
-  userIDContainer.style.zIndex = '1000'; // Ensure it appears above other elements
-
-  document.body.appendChild(userIDContainer);
-});
 
 const toggleRenderer = async () => {
   useSdk.value = !useSdk.value; // Switch rendering mode
