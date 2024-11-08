@@ -300,7 +300,7 @@ const updateDragControls = () => {
       position: { x: position.x, y: position.y, z: position.z },
     });
 
-    render(); // Ensure scene re-renders
+    render();
   });
 };
 
@@ -403,11 +403,6 @@ socket.on('objectMoved', (data) => {
   console.log('Received objectMoved data:', data); // Add log to confirm receipt
   handleObjectMovement(data); // Make sure this is being called
 });
-
-// // Listen for any event
-// socket.onAny((eventName, ...args) => {
-//   console.log(`Received event: ${eventName}`, args);
-// });
 
 // Function to broadcast environment change
 const setEnvMap = () => {
@@ -558,6 +553,23 @@ fbxLoader.load("/public/model/monitor2.fbx", (obj) => {
     }
   });
 
+  // fbxLoader.load("/public/model/blender_vehicle_guimarconi_subd_ready.fbx", (obj) => {
+  // obj.scale.set(0.1, 0.1, 0.1);
+  // obj.position.set(-1.5, -1, 0);
+  // obj.rotateY(-0.5);
+  // let index = 0;
+  // // Traverse through all child meshes to assign unique IDs
+  // obj.traverse((child) => {
+  //   if (child.isMesh) {
+  //     console.log('index', index);
+  //     // Assign a unique ID to each part based on its name or index
+  //     child.userData.id = `monitorModel_part_${index}`;
+  //     // Add each part to the objects list for DragControls
+  //     objects.push(child);
+  //     index++;
+  //   }
+  // });
+
   // Add the full model to the scene
   scene.add(obj);
 
@@ -634,7 +646,7 @@ function initDragControls(domElement) {
   });
 }
 
-// Handling text input for annotation (unchanged)
+// Handling text input for annotation
 const onEnter = () => {
   if (inputMessage.value) {
     // Add text annotation
@@ -653,7 +665,7 @@ const onEnter = () => {
   }
 };
 
-// AddMarkers function (unchanged)
+// AddMarkers function
 const addMarkers = (
   group,
   startPosition,
