@@ -23,6 +23,7 @@ app.use(express.static('public'));
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
+  socket.emit('userID', socket.id);
 
   // Object movement
   socket.on('objectMoved', (data) => {

@@ -55,23 +55,26 @@
 
 <!-- Terminal for comment history, conditionally rendered based on terminalVisible -->
 <div v-if="terminalVisible" class="comment-terminal">
-    <div class="terminal-header">
-      <h3>Comment History</h3>
-    </div>
-    <div class="terminal-content">
-      <ul>
-        <li v-for="(comment, index) in commentsOBJ" :key="index">
-          <div class="comment-list">
-            <div class="comment-details">
-              <span class="timestamp">{{ comment.timestamp }}</span>
-              <span class="text">{{ comment.text }}</span>
-            </div>
-            <button @click="deleteComment(index)" class="delete-button">Delete</button>
-          </div>
-        </li>
-      </ul>
-    </div>
+  <div class="terminal-header">
+    <h3>Comment History</h3>
   </div>
+  <div class="terminal-content">
+    <ul>
+      <li v-for="(comment, index) in commentsOBJ" :key="index">
+        <div class="comment-list">
+          <div class="comment-details">
+            <span class="timestamp">{{ comment.timestamp }}</span>
+            <span class="text">{{ comment.text }}</span>
+          </div>
+          <div class="user-id">
+            <span>Created by: {{ comment.userID }}</span> <!-- Display userID -->
+          </div>
+          <button @click="deleteComment(index)" class="delete-button">Delete</button>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>
 </template>
 
 <script setup>
@@ -142,11 +145,12 @@ const createComment = () => {
     text: commentText.text,
     timestamp: timestamp,
     object: commentText,
+    userID: socket.id
   });
 
   // Emit 'addComment' event for real-time collaboration
-  socket.emit("addComment", { text: userInput, timestamp, position: commentText.position });
-  console.log("emit addComment", { text: userInput, timestamp, position: commentText.position });
+  socket.emit("addComment", { text: userInput, timestamp, position: commentText.position, userID: socket.id });
+  console.log("emit addComment", { text: userInput, timestamp, position: commentText.position, userID: socket.id });
 
   // Attach click listener to select and show resize borders
   commentText.onClick = () => {
@@ -332,9 +336,9 @@ const addCommentToScene = (text, timestamp, position = { x: 0, y: 1, z: 0 }) => 
 // Socket listeners for real-time updates
 socket.on("addComment", (data) => {
   console.log("Received new comment:", data);
-  const { text, timestamp, position } = data;
+  const { text, timestamp, position, userID } = data;
   const commentText = addCommentToScene(text, timestamp, position);
-  commentsOBJ.value.push({ text, timestamp, object: commentText });
+  commentsOBJ.value.push({ text, timestamp, object: commentText, userID });
   comments.push(commentText);
 });
 
@@ -484,6 +488,24 @@ const render = () => {
   }
   requestAnimationFrame(render);
 };
+
+socket.on('userID', (userID) => {
+  console.log('Connected with userID:', userID);
+
+  // Display the userID on the UI
+  const userIDContainer = document.createElement('div');
+  userIDContainer.textContent = `User ID: ${userID}`;
+  userIDContainer.style.position = 'fixed';
+  userIDContainer.style.bottom = '10px'; // Positioned at the bottom
+  userIDContainer.style.left = '10px'; // Positioned on the left
+  userIDContainer.style.backgroundColor = '#f0f0f0';
+  userIDContainer.style.padding = '5px';
+  userIDContainer.style.border = '1px solid #ccc';
+  userIDContainer.style.borderRadius = '4px'; // Optional for rounded corners
+  userIDContainer.style.zIndex = '1000'; // Ensure it appears above other elements
+
+  document.body.appendChild(userIDContainer);
+});
 
 const toggleRenderer = async () => {
   useSdk.value = !useSdk.value; // Switch rendering mode
