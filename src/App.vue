@@ -90,10 +90,7 @@ import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import { io } from "socket.io-client";
 import * as ZXKJ from './sdk/zx-three-sdk';
-// import Comment from "./components/buttons/comment.vue";
-// import Environment from "./components/buttons/environment.vue";
 import Camera from "./components/buttons/camera.vue";
-// import Inner from "./components/buttons/internalStructure.vue";
 import SpriteText from "three-spritetext";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
@@ -568,14 +565,11 @@ onMounted(async () => {
   } else {
     renderer.setClearColor("#000");
   }
-  // zxRenderer.mixRenderer.setClearColor("#000");
+
   scene.background = new THREE.Color("#ccc");
   scene.environment = new THREE.Color("#ccc");
   socket.on('objectMoved', handleObjectMovement);
   render();
-
-  //controls = new OrbitControls(camera, domElement);
-  // controls.update();
 
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshStandardMaterial({ color: 0xff0000 }); // Red color for visibility
@@ -584,7 +578,6 @@ onMounted(async () => {
   cube.userData.id = "testCube"; 
   scene.add(cube);
   objects.push(cube);
-  //initDragControls(cube);
 
   const loader = new OBJLoader();
   loader.load("../public/model/computer.obj", (obj) => {
@@ -594,9 +587,6 @@ onMounted(async () => {
     obj.userData.id = "computerModel";
     scene.add(obj);
     objects.push(obj);
-
-    // Initialize dragging for collaboration
-    // initDragControls(obj);
   });
 
   const fbxLoader = new FBXLoader();
@@ -636,12 +626,7 @@ fbxLoader.load("/public/model/monitor2.fbx", (obj) => {
 
   // Add the full model to the scene
   scene.add(obj);
-
-  // Initialize dragging for all parts within the FBX
-  // initDragControls();
 });
-
-  // Additional lights (no changes)
   const light1 = new THREE.DirectionalLight("#fff", 0.8);
   light1.position.set(0, 0, 50);
   scene.add(light1);
@@ -782,7 +767,7 @@ const addMarkers = (
   scene.add(sprite);
 };
 
-// Window resize event (unchanged)
+// Window resize event
 addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -852,7 +837,7 @@ addEventListener("resize", () => {
 .toggle-terminal-button {
   position: fixed;
   top: 10px;
-  left: 10px; /* Move to top left */
+  left: 10px;
   background-color: #4a4a4a;
   color: #fff;
   border: none;
