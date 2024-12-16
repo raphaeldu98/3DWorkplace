@@ -18,7 +18,7 @@
       <div class="title">切换环境</div>
     </div>
 
-    <div class="comment button" @click="createComment">
+    <div class="comment button" @click="createCommentFromInput">
       <svg class="icon" aria-hidden="true">
         <use xlink:href="#icon-pizhu"></use>
       </svg>
@@ -36,6 +36,18 @@
         <div class="title">协同设计</div>
       </div>
     </a-popover>
+    <div class="voice-input button" v-if="!isListening" @click="startVoiceInput">
+      <svg class="icon" aria-hidden="true">
+        <use xlink:href="#icon-yihangyige1"></use>
+      </svg>
+      <div class="title">语音输入</div>
+    </div>
+    <div class="stop-voice button" v-if="isListening" @click="stopVoiceInput">
+      <svg class="icon" aria-hidden="true">
+        <use xlink:href="#icon-yihangyige1"></use>
+      </svg>
+      <div class="title">停止语音</div>
+    </div>
   </div>
 
   <div class="inputBox" v-show="inputShow">
@@ -95,6 +107,91 @@ import SpriteText from "three-spritetext";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 
+let hdrIndex = 1;
+const isListening = ref(false); // To manage the voice input state
+const recognition = ref(null); // Speech recognition instance
+
+// Initialize Speech Recognition
+if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition.value = new SpeechRecognition();
+  recognition.value.lang = "zh-CN"; // Set language
+  recognition.value.interimResults = false; // Only return final results
+} else {
+  console.error("Your browser does not support Web Speech API.");
+}
+
+// Start voice input and handle recognition
+const startVoiceInput = () => {
+  if (!recognition.value) {
+    alert("Your browser does not support voice input.");
+    return;
+  }
+
+  isListening.value = true;
+  recognition.value.start();
+  
+
+  recognition.value.onstart = () => {
+    console.log("Voice recognition started...");
+  };
+
+  recognition.value.onaudiostart = () => console.log("Audio capturing started...");
+  recognition.value.onspeechstart = () => console.log("Speech detected...");
+  recognition.value.onspeechend = () => console.log("Speech ended...");
+
+  recognition.value.onresult = (event) => {
+  const transcript = event.results[0][0].transcript.trim();
+  console.log("Recognized text:", transcript);
+
+  if (transcript.includes("添加批注")) {
+    const commentText = transcript.split("添加批注")[1]?.trim();
+    if (commentText) {
+      console.log("Extracted comment text:", commentText);
+      createCommentFromVoice(commentText);
+    } else {
+      console.log("No text found after '添加批注'");
+    }
+  } else {
+    console.log("No '添加批注' command detected, treating as a general comment");
+    createCommentFromVoice(transcript);
+  }
+};
+
+  recognition.value.onend = () => {
+    if (isListening.value) {
+      console.log("Voice recognition stopped automatically.");
+      isListening.value = false; // Reset listening state
+    }
+  };
+
+  recognition.value.onerror = (event) => {
+    console.log("error", event);
+    if (event.error === "aborted") {
+      console.log("Voice recognition was manually stopped.");
+    } else {
+      console.error("An error occurred during voice input:", event.error);
+    }
+  };
+};
+
+// Create comment from recognized voice input
+const createCommentFromVoice = (userInput) => {
+  if (!userInput) {
+    alert("No input detected.");
+    return;
+  }
+  createComment(userInput);
+};
+
+const stopVoiceInput = () => {
+  if (recognition.value && isListening.value) {
+    recognition.value.stop(); // Stop voice recognition
+    isListening.value = false; // Update state
+    console.log("Voice recognition stopped by user.");
+  }
+};
+
 // Socket.IO setup for real-time communication
 const socket = io("http://localhost:3000");
 let UserID = '';
@@ -149,10 +246,14 @@ const toggleTerminal = () => {
   terminalVisible.value = !terminalVisible.value;
 };
 
-// Create a new comment on the canvas
-const createComment = () => {
+const createCommentFromInput = () => {
   const userInput = prompt("Enter your comment:"); // Prompt user for comment text
   if (!userInput) return; 
+  createComment(userInput);
+}
+
+// Create a new comment on the canvas
+const createComment = (userInput) => {
   const timestamp = new Date().toLocaleString();
   const userID = socket.id;
   const text = `${UserID}:\n${userInput}`;
@@ -476,6 +577,45 @@ const setEnvMap = () => {
   });
 };
 
+// const setEnvMap = () => {
+//   // 根据当前索引加载 HDR 文件
+//   const hdrPath = `/public/files/hdr2/${hdrIndex}.hdr`;
+
+//   const rgbeLoader = new RGBELoader();
+//   rgbeLoader
+//     .loadAsync(hdrPath)
+//     .then((texture) => {
+//       texture.mapping = THREE.EquirectangularReflectionMapping;
+//       scene.background = texture;
+//       scene.environment = texture;
+//       console.log(`当前加载的 HDR 文件是: ${hdrPath}`);
+//     })
+//     .catch((error) => {
+//       console.error(`加载 HDR 文件失败: ${hdrPath}`, error);
+//     });
+
+//   // 更新索引（循环逻辑）
+//   hdrIndex = hdrIndex >= 5 ? 1 : hdrIndex + 1;
+// };
+
+const setEnvMapWithFile = (filePath) => {
+  const rgbeLoader = new RGBELoader();
+  
+  // Load the provided HDR file and set it as the environment map
+  rgbeLoader.loadAsync(filePath).then((texture) => {
+    texture.mapping = THREE.EquirectangularReflectionMapping;
+
+    // Set the texture as the background and environment
+    scene.background = texture;
+    scene.environment = texture;
+
+    // Emit an event to notify about the environment map change
+    socket.emit('envMapChanged', { filePath }); // Include filePath in the event payload for logging or syncing
+  }).catch((error) => {
+    console.error('Error loading environment map:', error);
+  });
+};
+
 // Listen for environment change events from the server
 socket.on('envMapChanged', () => {
   setEnvMap();
@@ -495,7 +635,7 @@ const setupRenderer = async () => {
   let domElement;
   if (useSdk.value) {
     // If using SDK renderer
-    const binaryContent = await fetch('/mask.bin').then((res) => res.arrayBuffer());
+    const binaryContent = await fetch('/beijing-75.bin').then((res) => res.arrayBuffer());
     const uint8Array = new Uint8Array(binaryContent);
     const kniter = new ZXKJ.Knit(uint8Array);
 
@@ -894,5 +1034,42 @@ addEventListener("resize", () => {
   cursor: pointer;
   padding: 5px 10px;
   margin-left: 10px;
+}
+.voice-input {
+  width: 100px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.voice-input .icon {
+  width: 4em;
+  height: 4em;
+  fill: #fff;
+}
+
+.voice-input .title {
+  color: #fff;
+}
+
+.stop-voice {
+  width: 100px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.stop-voice .icon {
+  width: 4em;
+  height: 4em;
+  fill: #ff4444;
+}
+
+.stop-voice .title {
+  color: #fff;
 }
 </style>
